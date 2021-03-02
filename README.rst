@@ -26,3 +26,8 @@ Example::
     export AWS_SECRET_ACCESS_KEY=<secret from above account>
     python untar-to-s3.py web-assets-1.2.23.tar.gz --bucket my-bucket-name --prefix production
 
+Notes::
+
+In order to make sure that it does not read the files that are already uploaded to S3, it will skip the files
+that are added to read_files. Add each entry in a new line
+

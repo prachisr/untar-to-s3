@@ -31,6 +31,7 @@ import gzip
 import argparse
 import io
 from multiprocessing.pool import ThreadPool
+import gc
 
 import boto3
 s3 = boto3.resource('s3')
@@ -85,8 +86,10 @@ def __deploy_asset_to_s3(data, path, size, bucket_name, compress=True):
             new_buffer.seek(0)
             data = new_buffer.read()
 
-        logging.debug("Uploading %s (%s bytes)" % (path, kwargs['ContentLength']))
+        logging.info("Uploading %s (%s bytes)" % (path, kwargs['ContentLength']))
         s3.Object(bucket_name, path).put(Body=data, **kwargs)
+        del data
+        gc.collect()
 
     except Exception as e:
         import traceback
@@ -97,7 +100,7 @@ def __deploy_asset_to_s3(data, path, size, bucket_name, compress=True):
     return kwargs['ContentLength']
 
 
-def deploy_tarball_to_s3(tarball_obj, bucket_name, prefix='', region='us-west-2', concurrency=50, no_compress=False, strip_components=0):
+def deploy_tarball_to_s3(tarball_obj, bucket_name, prefix='', region='us-west-2', concurrency=10, no_compress=False, strip_components=0):
     """
     Upload the contents of `tarball_obj`, a File-like object representing a valid .tar.gz file, to the S3 bucket `bucket_name`
     """
@@ -119,6 +122,9 @@ def deploy_tarball_to_s3(tarball_obj, bucket_name, prefix='', region='us-west-2'
     try:
         with tarfile.open(name=None, mode="r:*", fileobj=tarball_obj) as tarball:
 
+            with open("read_files") as f:
+                processed_files = f.read().splitlines()
+
             files_uploaded = 0
 
             # Parallelize the uploads so they don't take ages
@@ -135,6 +141,9 @@ def deploy_tarball_to_s3(tarball_obj, bucket_name, prefix='', region='us-west-2'
                     # Mimic the behaviour of tar -x --strip-components=
                     stripped_name = member.name.split('/')[strip_components:]
                     if not bool(stripped_name):
+                        continue
+                    if stripped_name[0] in processed_files:
+                        print('Skipping file ', stripped_name[0])
                         continue
 
                     path = os.path.join(prefix, '/'.join(stripped_name))
@@ -171,7 +180,7 @@ def main():
     parser.add_argument("-p", "--prefix", dest="prefix", type=str, default='', help="Prefix this to the path of all uploaded files")
     parser.add_argument("-r", "--region", dest="region", type=str, default="us-west-2",
                         help="Region of S3 bucket. Default=us-west-2")
-    parser.add_argument("-c", dest="concurrency", type=int, default=50,
+    parser.add_argument("-c", dest="concurrency", type=int, default=10,
                         help="Number of concurrent uploads. default=50")
     parser.add_argument("--debug", action="store_true", help="show verbose debug output")
     parser.add_argument("--no-compress", action="store_true",
